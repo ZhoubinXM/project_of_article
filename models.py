@@ -118,7 +118,7 @@ def get_noise(shape, noise_type, gpu):
     raise ValueError('Unrecognized noise type "%s"' % noise_type)
 
 
-# 创建一个编码器
+# 创建一个编码器（生成器和对抗器的编码部分）
 class Encoder(nn.Module):
     """
     Encoder is part of both TrajectoryGenerator andTrajectoryDiscriminator
