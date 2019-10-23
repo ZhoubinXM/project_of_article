@@ -13,8 +13,7 @@
       <file pinned="false" current-in-tab="true">
         <entry file="file://$PROJECT_DIR$/models.py">
           <provider selected="true" editor-type-id="text-editor">
-            <state relative-caret-position="741">
-              <caret line="821" column="41" selection-start-line="821" selection-start-column="41" selection-end-line="821" selection-end-column="41" />
+            <state>
               <folding>
                 <element signature="e#155#408#1" />
                 <element signature="e#451#3377#0" />
@@ -140,8 +139,7 @@
   <component name="editorHistoryManager">
     <entry file="file://$PROJECT_DIR$/models.py">
       <provider selected="true" editor-type-id="text-editor">
-        <state relative-caret-position="741">
-          <caret line="821" column="41" selection-start-line="821" selection-start-column="41" selection-end-line="821" selection-end-column="41" />
+        <state>
           <folding>
             <element signature="e#155#408#1" />
             <element signature="e#451#3377#0" />
