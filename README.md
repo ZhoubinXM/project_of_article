@@ -7,3 +7,5 @@ this is a project using to reading the code
 ##### 2.data preprocess
 ##### 3.utils
 ##### 4.softmax using to sample
+
+### 2.开题报告文章

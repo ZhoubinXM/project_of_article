@@ -93,8 +93,9 @@ class GumbleSoftmax(torch.nn.Module):
 
 # 创建一个mlp多层感知器 参数是 激活函数 标准化 dropout（防止过拟合）
 def make_mlp(dim_list, activation='relu', batch_norm=True, dropout=0):
+    # MLP[128+1024,1024,128] mlp的维度是输入128 输出1024
     layers = []
-    for dim_in, dim_out in zip(dim_list[:-1], dim_list[1:]):
+    for dim_in, dim_out in zip(dim_list[:-1], dim_list[1:]):  # zip函数将组成一个元祖一个元祖的形式用来进行循环变量
         layers.append(nn.Linear(dim_in, dim_out))
         if batch_norm:
             layers.append(nn.BatchNorm1d(dim_out))
@@ -172,13 +173,16 @@ class Encoder(nn.Module):
         obs_traj_embedding = obs_traj_embedding.view( -1, batch, self.embedding_dim)
 
         state_tuple = self.init_hidden(batch)
-        output, state = self.encoder(obs_traj_embedding, state_tuple)  # state是（h_n,c_n）
-        final_h = state[0] # 输出最终lstm的隐藏状态
+        output, state = self.encoder(obs_traj_embedding, state_tuple)  # state是（h_n,c_n） 详情见公式1
+        final_h = state[0] # 输出最终lstm的隐藏状态 将包含轨迹的所有隐藏信息  公式2
         return final_h
 
-# 创建一个解码器
+
+# 创建一个解码器（解码器用于生成器中 用于连接编码器的输出）
 class Decoder(nn.Module):
-    """Decoder is part of TrajectoryGenerator"""
+    """
+    Decoder is part of TrajectoryGenerator
+    """
     def __init__(
         self, seq_len, embedding_dim=64, h_dim=128, mlp_dim=1024, num_layers=1,
         pool_every_timestep=True, dropout=0.0, bottleneck_dim=1024,
@@ -217,15 +221,15 @@ class Decoder(nn.Module):
                     neighborhood_size=neighborhood_size,
                     grid_size=grid_size
                 )
-
+            # MLP[128+1024,1024,128]
             mlp_dims = [h_dim + bottleneck_dim, mlp_dim, h_dim]
+            # 调用make_mlp函数创建一个mlp多层感知器网络
             self.mlp = make_mlp(
                 mlp_dims,
                 activation=activation,
                 batch_norm=batch_norm,
                 dropout=dropout
             )
-
         self.spatial_embedding = nn.Linear(2, embedding_dim)
         self.hidden2pos = nn.Linear(h_dim, 2)
 
@@ -240,6 +244,13 @@ class Decoder(nn.Module):
         - seq_start_end: A list of tuples which delimit sequences within batch
         Output:
         - pred_traj: tensor of shape (self.seq_len, batch, 2)
+        输入：
+         -last_pos：形状的张量（batch，2）
+         -last_pos_rel：形状的张量（batch，2）
+         -state_tuple：（hh，ch）每个形状的张量（num_layers，batch，h_dim）
+         -seq_start_end：在批处理中界定序列的元组列表
+         输出：
+         -pred_traj：形状的张量（self.seq_len，batch，2）
         """
         batch = last_pos.size(0)
         pred_traj_fake_rel = []
@@ -252,7 +263,7 @@ class Decoder(nn.Module):
             curr_pos = rel_pos + last_pos
 
             if self.pool_every_timestep:
-                decoder_h = state_tuple[0]
+                decoder_h = state_tuple[0]  # 取出网络的隐藏状态
 
                 pool_h = self.pool_net(decoder_h, seq_start_end, curr_pos)[0]
 
@@ -274,6 +285,7 @@ class Decoder(nn.Module):
         return pred_traj_fake_rel, state_tuple[0]
 
 
+# 池化层用于共享行人信息
 class PoolHiddenNet(nn.Module):
     """Pooling module as proposed in our paper"""
     def __init__(
@@ -287,10 +299,11 @@ class PoolHiddenNet(nn.Module):
         self.bottleneck_dim = bottleneck_dim
         self.embedding_dim = embedding_dim
 
-        mlp_pre_dim = embedding_dim + h_dim
-        mlp_pre_pool_dims = [mlp_pre_dim, 512, bottleneck_dim]
+        mlp_pre_dim = embedding_dim + h_dim  # 64+64=128
+        mlp_pre_pool_dims = [mlp_pre_dim, 512, bottleneck_dim]  # [128,512,1024]
 
-        self.spatial_embedding = nn.Linear(2, embedding_dim)
+        self.spatial_embedding = nn.Linear(2, embedding_dim)  # 空间嵌入 embedding层
+        # 创建池化网络的mlp多层感知器
         self.mlp_pre_pool = make_mlp(
             mlp_pre_pool_dims,
             activation=activation,
@@ -299,6 +312,12 @@ class PoolHiddenNet(nn.Module):
 
         self.gumbel = GumbleSoftmax()
 
+    '''
+    代码实现时，计算相对位置信息时显得比较巧妙，例如在同场景的行人位置信息，
+    代码通过两次不同的repeat策略将原有N个人的位置信息重复N次，
+    从而形成了[P0, P0, P0, ...] [P1, P1, P1, ...] ... 和 [P0, P1, P2, ...] [P0, P1, P2, ...] ..两个矩阵，
+    通过矩阵相减即可得到一个N*N行的矩阵，第i行是第i%N个人相对于第i/N个人的相对位置
+    '''
     def repeat(self, tensor, num_reps):
         """
         Inputs:
@@ -344,10 +363,13 @@ class PoolHiddenNet(nn.Module):
             curr_end_pos_1 = curr_end_pos.repeat(num_ped, 1)  # stack vertically
             # Repeat position -> P1, P1, P2, P2
             curr_end_pos_2 = self.repeat(curr_end_pos, num_ped)  # don't stack, repeat in place
+
+            # 得到行人的end_pos间的相对关系，并交给感知机去具体处理。
+            # 每个行人与其他行人的相对位置关系由num_ped项，合计有num_ped**2项。
             curr_rel_pos = curr_end_pos_1 - curr_end_pos_2  # compute distances between all pairs of pedestrians
             curr_rel_embedding = self.spatial_embedding(curr_rel_pos)
 
-
+            # 拼接H_i和处理过的pos，放入多层感知机，最后经过maxPooling。
             mlp_h_input = torch.cat([curr_rel_embedding, curr_hidden_1], dim=1)
             curr_pool_h_raw = self.mlp_pre_pool(mlp_h_input)
             curr_pool_raw_view = curr_pool_h_raw.view(num_ped, num_ped, -1)  # rearrange such that each a row represents a pedestrian
@@ -458,7 +480,8 @@ class PoolHiddenNet(nn.Module):
         return pool_h, (includedPedestrians, includedPedestriansNoSelfIncl, includedSelf, ratioChosenAndClosest)
 
 
-
+# social lstm 部分（改版的论文中是否可用？）
+#TODO:try using this model in the last paper to join the part of the social factor.
 class SocialPooling(nn.Module):
     """Current state of the art pooling mechanism:
     http://cvgl.stanford.edu/papers/CVPR16_Social_LSTM.pdf"""
@@ -579,6 +602,12 @@ class SocialPooling(nn.Module):
         return pool_h
 
 
+# 生成器的代码部分
+'''
+embeding位于encoder代码下 
+embedding->encoder->poolingnet->mlp->decoder->mlp
+代码分析博客园
+'''
 class TrajectoryGenerator(nn.Module):
     def __init__(
         self, obs_len, pred_len, embedding_dim=64, encoder_h_dim=64,
@@ -607,7 +636,7 @@ class TrajectoryGenerator(nn.Module):
         self.noise_first_dim = 0
         self.pool_every_timestep = pool_every_timestep
         self.bottleneck_dim = 1024
-        self.use_gpu=use_gpu
+        self.use_gpu = use_gpu
 
         self.encoder = Encoder(
             embedding_dim=embedding_dim,
@@ -789,6 +818,7 @@ class TrajectoryGenerator(nn.Module):
             return pred_traj_fake_rel, []
 
 
+# 判别器部分（用到上面的编码器模块代码）
 class TrajectoryDiscriminator(nn.Module):
     def __init__(
         self, obs_len, pred_len, embedding_dim=64, h_dim=64, mlp_dim=1024,
